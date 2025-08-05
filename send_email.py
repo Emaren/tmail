@@ -69,7 +69,7 @@ def send_email(config, html_content, ts):
         )
         yag.send(
             to=config["TO_EMAIL"],
-            subject=f"19💌 TokenTap 👋 · {ts}",
+            subject=f"22💌 TokenTap 👋 · {ts}",
             contents=html_content
         )
         print("📤 Email sent successfully.")
