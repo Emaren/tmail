@@ -1,6 +1,14 @@
 import os
 import socket
 import time
+import smtplib
+
+# === Disable keyring for yagmail ===
+os.environ["YAGMAIL_DISABLE_KEYRING"] = "true"
+
+# === Set global SMTP timeout to prevent hangs ===
+smtplib.socket.setdefaulttimeout(10)
+
 from dotenv import load_dotenv
 import yagmail
 
@@ -15,7 +23,7 @@ DRY_RUN = os.getenv("DRY_RUN", "0") == "1"
 ZOHO_USER         = os.getenv("SMTP_USER")
 ZOHO_APP_PASSWORD = os.getenv("SMTP_PASS")
 ZOHO_SMTP_HOST    = os.getenv("SMTP_HOST", "smtp.zoho.com")
-ZOHO_SMTP_PORT    = int(os.getenv("SMTP_PORT", 465))
+ZOHO_SMTP_PORT    = int(os.getenv("SMTP_PORT", 587))  # ✅ correct STARTTLS port
 RECIPIENT         = os.getenv("TO_EMAIL", "tonyblum@me.com")
 
 print_log("SMTP User", ZOHO_USER)
@@ -33,8 +41,8 @@ if not DRY_RUN:
             password=ZOHO_APP_PASSWORD,
             host=ZOHO_SMTP_HOST,
             port=ZOHO_SMTP_PORT,
-            smtp_ssl=True,
-            smtp_starttls=False
+            smtp_ssl=False,      
+            smtp_starttls=True    
         )
         print("✅ SMTP connection established.")
     except Exception as e:
@@ -45,7 +53,7 @@ if not DRY_RUN:
 ts = int(time.time())
 print_log("Generated timestamp", ts)
 
-# === BETTER LAN IP RESOLUTION ===
+# === LAN IP RESOLUTION ===
 def get_lan_ip():
     try:
         import netifaces
@@ -92,13 +100,16 @@ html_content = f"""
 </html>
 """
 
-print_log("Email Subject", f"1TokenTap 👋 · {ts}")
+print_log("Email Subject", f"4TokenTap 👋 · {ts}")
 print_log("HTML Snippet", html_content.strip()[:300] + "...")
 
 # === SAVE TO FILE FOR DEBUGGING ===
-debug_path = f"email_debug_{ts}.html"
+emails_dir = "emails"
+os.makedirs(emails_dir, exist_ok=True)
+debug_path = os.path.join(emails_dir, f"email_debug_{ts}.html")
 with open(debug_path, "w") as f:
     f.write(html_content)
+
 print_log("Saved HTML to file", debug_path)
 
 # === SEND EMAIL ===
@@ -106,9 +117,10 @@ if DRY_RUN:
     print("🧪 DRY RUN MODE: Email not sent.")
 else:
     try:
+        print("📨 Sending email now...")
         yag.send(
             to=RECIPIENT,
-            subject=f"TokenTap 👋 · {ts}",
+            subject=f"4TokenTap 👋 · {ts}",
             contents=html_content
         )
         print("📤 Email sent successfully.")

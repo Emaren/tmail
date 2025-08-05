@@ -7,3 +7,4 @@ open_log.txt
 .envrc
 .direnv/
 .python-version
+emails/
