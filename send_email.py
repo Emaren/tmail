@@ -1,15 +1,11 @@
-import os
-import time
-import smtplib
-import webbrowser
+import os, time, smtplib, webbrowser
 from pathlib import Path
 from dotenv import load_dotenv
-import yagmail
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email import encoders
 
-# === CONFIGURATION ===
-def print_log(label, value):
-    print(f"🔍 {label}: {value}")
-
+# ---------- CONFIG ----------
 def load_config():
     load_dotenv()
     return {
@@ -18,90 +14,87 @@ def load_config():
         "SMTP_PASS": os.getenv("SMTP_PASS"),
         "SMTP_HOST": os.getenv("SMTP_HOST", "smtp.zoho.com"),
         "SMTP_PORT": int(os.getenv("SMTP_PORT", 587)),
-        "TO_EMAIL": os.getenv("TO_EMAIL", "tonyblum@me.com"),
+        "TO_EMAIL": os.getenv("TO_EMAIL"),
         "TRACK_HOST": os.getenv("TRACK_HOST", "track.tokentap.ca"),
         "AUTO_OPEN_HTML": os.getenv("OPEN_HTML", "0") == "1",
     }
 
+# ---------- TRACKING PIXELS ----------
 def build_tracking_pixels(track_host, ts):
-    base_url = f"https://{track_host}/track"
-    pixel_public = f"{base_url}?id=tony_public&ts={ts}"
-    pixel_local  = f"{base_url}?id=tony_localhost&ts={ts}"
-    click_track  = f"{base_url}?id=hidden_click&ts={ts}"
-
+    base = f"https://{track_host}/track"
+    p1   = f"{base}?id=tony_public&ts={ts}"
+    p2   = f"{base}?id=tony_local&ts={ts}"
+    click= f"{base}?id=hidden_click&ts={ts}"
     return f"""
-    <!-- Primary tracking pixels -->
-    <img src="{pixel_public}" width="1" height="1" style="display:block!important;width:1px!important;height:1px!important;border:none!important;outline:none!important;" alt="" />
-    <img src="{pixel_local}" width="1" height="1" style="display:block!important;width:1px!important;height:1px!important;border:none!important;outline:none!important;" alt="" />
+      <img src="{p1}" width="1" height="1" style="display:block;width:1px;height:1px" alt="">
+      <img src="{p2}" width="1" height="1" style="display:block;width:1px;height:1px" alt="">
+      <div style="display:none;background-image:url('{p1}');width:1px;height:1px"></div>
+      <a href="{click}" style="display:inline-block;width:1px;height:1px;overflow:hidden">
+        <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+             width="1" height="1" alt="">
+      </a>"""
 
-    <!-- Fallback CSS pixel -->
-    <div style="display:none!important; background-image: url('{pixel_public}'); width:1px; height:1px;"></div>
+# ---------- TEMPLATE ----------
+def build_email_html(tracking_pixels):
+    with open("email_template.html", encoding="utf-8") as f:
+        return f.read().replace("{{tracking_pixels}}", tracking_pixels)
 
-    <!-- Hidden click tracker -->
-    <a href="{click_track}" style="display:inline-block;width:1px;height:1px;overflow:hidden;">
-      <img src="https://tokentap.ca/email-assets/invisible-dot.png" width="1" height="1" alt="" style="display:block;" />
-    </a>
-    """
+# ---------- MESSAGE BUILDER ----------
+def build_message(cfg, html, ts):
+    msg = MIMEMultipart("alternative")
+    from email.utils import formataddr
 
-def build_email_html(tracking_pixels: str) -> str:
-    with open("email_template.html", "r") as f:
-        template = f.read()
-    return template.replace("{{tracking_pixels}}", tracking_pixels)
+    msg["From"] = formataddr(("Tony with TokenTap", cfg["SMTP_USER"]))
+    msg["To"]   = cfg["TO_EMAIL"]
+    msg["Subject"] = f"Your Brand’s Token Is Ready 🪙 $BOO"
 
-def save_html_file(content: str, ts: int) -> str:
-    emails_dir = Path("emails")
-    emails_dir.mkdir(exist_ok=True)
-    file_path = emails_dir / f"email_debug_{ts}.html"
-    file_path.write_text(content)
-    return str(file_path)
+    # Add unsubscribe headers for compliant mail clients
+    msg.add_header(
+        'List-Unsubscribe',
+        '<mailto:unsubscribe@tokentap.ca?subject=unsubscribe>'
+    )
+    msg.add_header(
+        'List-Unsubscribe-Post',
+        'List-Unsubscribe=One-Click'
+    )
 
-def send_email(config, html_content, ts):
-    try:
-        print("📨 Sending email now...")
-        yag = yagmail.SMTP(
-            user=config["SMTP_USER"],
-            password=config["SMTP_PASS"],
-            host=config["SMTP_HOST"],
-            port=config["SMTP_PORT"],
-            smtp_ssl=False,
-            smtp_starttls=True,
-            timeout=10
-        )
-        yag.send(
-            to=config["TO_EMAIL"],
-            subject=f"22💌 TokenTap 👋 · {ts}",
-            contents=html_content
-        )
-        print("📤 Email sent successfully.")
-    except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+    # Plain-text preview
+    txt = MIMEText("View this email in an HTML‑capable mail client.", "plain", "utf-8")
+    msg.attach(txt)
 
+    # HTML part
+    html_part = MIMEText(html, "html", "utf-8")
+    encoders.encode_base64(html_part)
+    msg.attach(html_part)
+
+    return msg
+
+# ---------- SENDER ----------
+def send_email(cfg, html, ts):
+    msg = build_message(cfg, html, ts)
+    with smtplib.SMTP(cfg["SMTP_HOST"], cfg["SMTP_PORT"], timeout=10) as s:
+        s.starttls()
+        s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])
+        print(f"📨 Sending email to: {msg['To']}")
+        s.send_message(msg)
+    print("📤 Email sent successfully.")
+
+# ---------- MAIN ----------
 def main():
-    config = load_config()
-    for k, v in config.items():
-        print_log(k, v)
-
+    cfg = load_config()
     ts = int(time.time())
-    print_log("Generated timestamp", ts)
 
-    tracking_pixels = build_tracking_pixels(config["TRACK_HOST"], ts)
-    html_content = build_email_html(tracking_pixels)
+    html = build_email_html(build_tracking_pixels(cfg["TRACK_HOST"], ts))
+    Path("emails").mkdir(exist_ok=True)
+    Path(f"emails/email_debug_{ts}.html").write_text(html, encoding="utf‑8")
 
-    print_log("Email Subject", f"💌 TokenTap 👋 · {ts}")
-    print_log("HTML Snippet", html_content.strip()[:300] + "...")
+    if cfg["AUTO_OPEN_HTML"]:
+        webbrowser.open(f"file://{Path.cwd()}/emails/email_debug_{ts}.html")
 
-    html_path = save_html_file(html_content, ts)
-    print_log("Saved HTML to file", html_path)
-
-    if config["AUTO_OPEN_HTML"]:
-        webbrowser.open(f"file://{html_path}")
-
-    if config["DRY_RUN"]:
-        print("🧪 DRY RUN MODE: Email not sent.")
+    if cfg["DRY_RUN"]:
+        print("🧪 DRY‑RUN: email not sent.")
     else:
-        send_email(config, html_content, ts)
+        send_email(cfg, html, ts)
 
 if __name__ == "__main__":
-    os.environ["YAGMAIL_DISABLE_KEYRING"] = "true"
-    smtplib.socket.setdefaulttimeout(10)
     main()
